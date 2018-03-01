@@ -1,6 +1,7 @@
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
 #include "FastLED.h"
+#include "storedata.h"
 
 FASTLED_USING_NAMESPACE
 
@@ -12,7 +13,7 @@ FASTLED_USING_NAMESPACE
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB
 #define NUM_LEDS    144
-#define BRIGHTNESS          10
+#define BRIGHTNESS          250
 #define FRAMES_PER_SECOND  120
 
 //distance between leds on strip
@@ -41,10 +42,36 @@ void setup() {
 
   // set master brightness control
   FastLED.setBrightness(BRIGHTNESS);
+
+  unsigned long start = millis();
+
+#define BUFF_SIZE 10
+  char buff[BUFF_SIZE];
+  int bp = 0;
+
+  Serial.print("> ");
+  while (millis() < ( start + 2000UL )) {
+    if (bp >= BUFF_SIZE - 1 )
+    {
+      break;
+    }
+    if (Serial.available())
+    {
+      buff[bp++] = Serial.read();
+    }
+  }
+  buff[bp] = 0;
+  int a = atoi(buff);
+  Serial.println(a);
+  readRecords(0, a);
+
 }
 
 int pos = NUM_LEDS - 1;
 int ramp = 500;
+
+height_record hr;
+
 void loop() {
   pos = NUM_LEDS - 1;
   ramp = 500;
@@ -52,29 +79,39 @@ void loop() {
   while (digitalRead(BTN_PIN) == 1)
   {
     smartDelay(100);
+    if (gps.location.isValid()) {
+      leds[0] = CRGB(0, 255, 0);
+      FastLED.show();
+    }
+    else
+    {
+      leds[0] = CRGB(255, 0, 0);
+      FastLED.show();
+    }
   }
+
   //printInt(gps.satellites.value(), gps.satellites.isValid(), 5);
   //printFloat(gps.hdop.hdop(), gps.hdop.isValid(), 6, 1);
-  printFloat(gps.location.lat(), gps.location.isValid(), 11, 6);
-  printFloat(gps.location.lng(), gps.location.isValid(), 12, 6);
-  /*printInt(gps.location.age(), gps.location.isValid(), 5);
-    printDateTime(gps.date, gps.time);
-    printFloat(gps.altitude.meters(), gps.altitude.isValid(), 7, 2);
-    printFloat(gps.course.deg(), gps.course.isValid(), 7, 2);
-    printFloat(gps.speed.kmph(), gps.speed.isValid(), 6, 2);
-    printStr(gps.course.isValid() ? TinyGPSPlus::cardinal(gps.course.deg()) : "*** ", 6);
+  if (gps.location.isValid())
+  {
+    printFloat(gps.location.lat(), gps.location.isValid(), 11, 6);
+    printFloat(gps.location.lng(), gps.location.isValid(), 12, 6);
 
-    printInt(gps.charsProcessed(), true, 6);
-    printInt(gps.sentencesWithFix(), true, 10);
-    printInt(gps.failedChecksum(), true, 9);*/
-
+    hr.lat = gps.location.lat();
+    hr.lng = gps.location.lng();
+  }
+  else
+  {
+    hr.lat = -9999.99f;
+    hr.lng = -9999.99f;
+  }
 
   while (digitalRead(BTN_PIN) == 0) {
     smartDelay(10);
   }
 
 
-//TODO: led speed should ramp down towards each end and bounce rather than wrap around
+  //TODO: led speed should ramp down towards each end and bounce rather than wrap around
   while (digitalRead(BTN_PIN) == 1 ) {
     for ( int i = 0; i < NUM_LEDS; i++) {
       if (i == pos) {
@@ -92,9 +129,9 @@ void loop() {
       ramp *= 0.75;
     }
 
-    if(ramp < 30)
+    if (ramp < 30)
     {
-      ramp =30;
+      ramp = 30;
     }
 
     pos--;
@@ -104,21 +141,24 @@ void loop() {
     }
   }
 
-  float height = BASE_LED_OFFSET_MM + ((NUM_LEDS - pos) * LED_SEP_VAL_MM);
-  Serial.print(height);
+  hr.height = calculateHeight(pos);
+  storeRecord(hr);
+  Serial.print(hr.height);
   Serial.println();
+
   smartDelay(1000);
+
+
   for ( int i = 0; i < NUM_LEDS; i++) {
     leds[i] = 0;
   }
   FastLED.show();
 
+}
 
-
-
-  /*if (millis() > 5000 && gps.charsProcessed() < 10)
-    Serial.println(F("No GPS data received: check wiring"));
-  */
+static float calculateHeight(int led_pos)
+{
+  return BASE_LED_OFFSET_MM + ((NUM_LEDS - pos) * LED_SEP_VAL_MM);
 }
 
 // This custom version of delay() ensures that the gps object
