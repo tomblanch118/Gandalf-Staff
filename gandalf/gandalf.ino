@@ -21,6 +21,7 @@ FASTLED_USING_NAMESPACE
 //distance from base of pole to first led
 #define BASE_LED_OFFSET_MM 20
 #define BTN_PIN 7
+#define BTN2_PIN 8
 
 static const int RXPin = 4, TXPin = 3;
 static const uint32_t GPSBaud = 9600;
@@ -34,15 +35,49 @@ CRGB leds[NUM_LEDS];
 
 
 void setup() {
-  pinMode(BTN_PIN, INPUT);
+
+  //Set up buttons
+  pinMode(BTN_PIN, INPUT_PULLUP);
+  pinMode(BTN2_PIN, INPUT_PULLUP);
+
+  //Set up UART and softare UART for GPS
   Serial.begin(115200);
   ss.begin(GPSBaud);
 
+  //Set up LEDS
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
 
+  //TODO: adjust brightness either due to battery voltage or user settings
   // set master brightness control
   FastLED.setBrightness(BRIGHTNESS);
 
+
+  doDataExport();
+
+
+}
+
+int pos = NUM_LEDS - 1;
+
+height_record hr;
+
+void loop() {
+  powerDown();
+
+  //is button pressed
+
+}
+
+/*
+   Power down into as low a power as possible as we dont have an off switch
+*/
+void powerDown()
+{
+  //Sleep Flash, sleep
+  //Wake from interrupt WDT off
+}
+void doDataExport()
+{
   unsigned long start = millis();
 
 #define BUFF_SIZE 10
@@ -66,14 +101,9 @@ void setup() {
   readRecords(0, a);
 
 }
-
-int pos = NUM_LEDS - 1;
-int ramp = 500;
-
-height_record hr;
-
-void loop() {
-  pos = NUM_LEDS - 1;
+void doMeasuringStick()
+{
+  // pos = NUM_LEDS - 1;
   ramp = 500;
 
   while (digitalRead(BTN_PIN) == 1)
@@ -112,33 +142,29 @@ void loop() {
 
 
   //TODO: led speed should ramp down towards each end and bounce rather than wrap around
-  while (digitalRead(BTN_PIN) == 1 ) {
-    for ( int i = 0; i < NUM_LEDS; i++) {
-      if (i == pos) {
-        leds[i] = CRGB(255, 255, 255);
-      }
-      else
-      {
-        leds[i] = 0;
-      }
-    }
-    FastLED.show();
-    smartDelay(ramp);
-    if (ramp > 30)
-    {
-      ramp *= 0.75;
-    }
+  while ( (digitalRead(BTN_PIN) == 1 ) || (digitalRead(BTN2_PIN) == 1) ) {
+    //Serial.println("Waiting for btn");
+    drawPos(pos);
 
-    if (ramp < 30)
+    if (digitalRead(BTN_PIN) == 0)
     {
-      ramp = 30;
+      Serial.println("Button up");
+      pos++;
+      smartDelay(50);
     }
+    else if (digitalRead(BTN2_PIN) == 0)
+    {
+      Serial.println("Button down");
+      pos--;
+      smartDelay(50);
+    }
+    pos = pos % (NUM_LEDS - 1);
 
-    pos--;
     if (pos < 0 )
     {
       pos = NUM_LEDS - 1;
     }
+
   }
 
   hr.height = calculateHeight(pos);
@@ -153,9 +179,20 @@ void loop() {
     leds[i] = 0;
   }
   FastLED.show();
-
 }
-
+static void drawPos(int pos)
+{
+  for ( int i = 0; i < NUM_LEDS; i++) {
+    if (i == pos) {
+      leds[i] = CRGB(255, 255, 255);
+    }
+    else
+    {
+      leds[i] = 0;
+    }
+  }
+  FastLED.show();
+}
 static float calculateHeight(int led_pos)
 {
   return BASE_LED_OFFSET_MM + ((NUM_LEDS - pos) * LED_SEP_VAL_MM);
