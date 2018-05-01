@@ -20,8 +20,8 @@ FASTLED_USING_NAMESPACE
 #define LED_SEP_VAL_MM 6.6944f
 //distance from base of pole to first led
 #define BASE_LED_OFFSET_MM 20
-#define BTN_PIN 7
-#define BTN2_PIN 8
+#define BTN_PIN 5
+#define BTN2_PIN 7
 
 static const int RXPin = 4, TXPin = 3;
 static const uint32_t GPSBaud = 9600;
@@ -33,6 +33,7 @@ TinyGPSPlus gps;
 SoftwareSerial ss(RXPin, TXPin);
 CRGB leds[NUM_LEDS];
 
+uint8_t gHue = 0;
 
 void setup() {
 
@@ -52,9 +53,42 @@ void setup() {
   FastLED.setBrightness(BRIGHTNESS);
 
 
-  doDataExport();
+  while (digitalRead(BTN_PIN) == 1)
+  {
+    smartDelay(100);
+  }
+  //doDataExport();
+  unsigned long start = millis();
+  uint8_t c = 0;
 
+  while (millis() - start < 6000)
+  {
+    sinelon();
+    FastLED.show();
+    FastLED.delay(1000 / 1000);
+    c++;
+    if (c >= 2)
+    {
+      c = 0;
+      gHue++;
+    }
+  }
+  start = millis();
 
+  while (millis() - start < 2000)
+  {
+    fadeToBlackBy( leds, NUM_LEDS, 20);
+    FastLED.show();
+  }
+
+}
+
+void sinelon()
+{
+  // a colored dot sweeping back and forth, with fading trails
+  fadeToBlackBy( leds, NUM_LEDS, 20);
+  int pos = beatsin16( 13, 0, NUM_LEDS - 1 );
+  leds[pos] += CHSV( gHue, 255, 192);
 }
 
 int pos = NUM_LEDS - 1;
@@ -62,8 +96,8 @@ int pos = NUM_LEDS - 1;
 height_record hr;
 
 void loop() {
-  powerDown();
-
+  //powerDown();
+  doMeasuringStick();
   //is button pressed
 
 }
@@ -104,7 +138,7 @@ void doDataExport()
 void doMeasuringStick()
 {
   // pos = NUM_LEDS - 1;
-  ramp = 500;
+  int  ramp = 500;
 
   while (digitalRead(BTN_PIN) == 1)
   {
