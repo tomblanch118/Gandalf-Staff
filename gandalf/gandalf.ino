@@ -2,6 +2,8 @@
 #include <SoftwareSerial.h>
 #include "FastLED.h"
 #include "storedata.h"
+#include <SD.h>
+#include <SPI.h>
 
 FASTLED_USING_NAMESPACE
 
@@ -9,10 +11,20 @@ FASTLED_USING_NAMESPACE
 #warning "Requires FastLED 3.1 or later; check github for latest code."
 #endif
 
+#define __DEBUG
+
+#ifdef __DEBUG
+#define DEBUG_PRINT(x) Serial.print(x);
+#define DEBUG_PRINTLN(x) Serial.println(x);
+#else
+#define DEBUG_PRINT(x) ;
+#define DEBUG_PRINTLN(x) ;
+#endif
+
 #define DATA_PIN    6
 #define LED_TYPE    WS2812B
 #define COLOR_ORDER GRB
-#define NUM_LEDS    144
+#define NUM_LEDS    1//144
 #define BRIGHTNESS          250
 #define FRAMES_PER_SECOND  120
 
@@ -25,6 +37,8 @@ FASTLED_USING_NAMESPACE
 
 static const int RXPin = 4, TXPin = 3;
 static const uint32_t GPSBaud = 9600;
+const int chipSelect = A0;
+
 
 // The TinyGPS++ object
 TinyGPSPlus gps;
@@ -35,6 +49,20 @@ CRGB leds[NUM_LEDS];
 
 uint8_t gHue = 0;
 
+void error(int error_code)
+{
+  //TODO: flash lights in number of times based on the error code or something 
+  DEBUG_PRINT("Error ")
+  DEBUG_PRINTLN(error_code)
+  while(1);
+}
+
+typedef enum ErrorCodes
+{
+  LOWBATTERY,
+  NOSDCARD,
+  NOGPS
+};
 void setup() {
 
   //Set up buttons
@@ -45,6 +73,17 @@ void setup() {
   Serial.begin(115200);
   ss.begin(GPSBaud);
 
+
+  //TODO: try opening the file to make sure we can write?
+  //Check if there is an SD Card
+  if(!init_sd_card())
+  {
+    error(NOSDCARD);
+  }
+
+//TODO: battery level
+
+  //TODO: change to a less ram intensive led lib
   //Set up LEDS
   FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
 
@@ -52,44 +91,31 @@ void setup() {
   // set master brightness control
   FastLED.setBrightness(BRIGHTNESS);
 
-
-  while (digitalRead(BTN_PIN) == 1)
+  
+  while (!gps.location.isValid())
   {
-    smartDelay(100);
+    smartDelay(1000);
+    DEBUG_PRINTLN(".")
   }
-  //doDataExport();
-  unsigned long start = millis();
-  uint8_t c = 0;
 
-  while (millis() - start < 6000)
-  {
-    sinelon();
-    FastLED.show();
-    FastLED.delay(1000 / 1000);
-    c++;
-    if (c >= 2)
-    {
-      c = 0;
-      gHue++;
-    }
-  }
-  start = millis();
-
-  while (millis() - start < 2000)
-  {
-    fadeToBlackBy( leds, NUM_LEDS, 20);
-    FastLED.show();
-  }
+  DEBUG_PRINTLN("GOT FIX")
 
 }
 
-void sinelon()
+uint8_t init_sd_card()
 {
-  // a colored dot sweeping back and forth, with fading trails
-  fadeToBlackBy( leds, NUM_LEDS, 20);
-  int pos = beatsin16( 13, 0, NUM_LEDS - 1 );
-  leds[pos] += CHSV( gHue, 255, 192);
+   DEBUG_PRINT("SDCard [")
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect)) {
+    DEBUG_PRINTLN(" ]")
+    // don't do anything more:
+    return 0;
+  }
+  DEBUG_PRINTLN("X]")
+  return 1;
 }
+
+
 
 int pos = NUM_LEDS - 1;
 
