@@ -1,15 +1,22 @@
+/**
+   5/7 buttons white/yellow
+  6 LEDS green
+
+  GPS
+  yellow 3
+  green 4
+
+
+
+*/
+
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
-#include "FastLED.h"
-#include "storedata.h"
+//#include "FastLED.h"
+#include <Adafruit_NeoPixel.h>
+
 #include <SD.h>
 #include <SPI.h>
-
-FASTLED_USING_NAMESPACE
-
-#if defined(FASTLED_VERSION) && (FASTLED_VERSION < 3001000)
-#warning "Requires FastLED 3.1 or later; check github for latest code."
-#endif
 
 #define __DEBUG
 
@@ -21,90 +28,150 @@ FASTLED_USING_NAMESPACE
 #define DEBUG_PRINTLN(x) ;
 #endif
 
-#define DATA_PIN    6
-#define LED_TYPE    WS2812B
-#define COLOR_ORDER GRB
-#define NUM_LEDS    1//144
-#define BRIGHTNESS          250
-#define FRAMES_PER_SECOND  120
-
 //distance between leds on strip
 #define LED_SEP_VAL_MM 6.6944f
 //distance from base of pole to first led
 #define BASE_LED_OFFSET_MM 20
-#define BTN_PIN 5
-#define BTN2_PIN 7
+#define NUM_LEDS 144
+#define BTN_PIN 12
+#define BTN2_PIN 13
+#define LED_PIN 14
+#define BATTERY_PIN A3
 
-static const int RXPin = 4, TXPin = 3;
+
+#define MIN_VOLTAGE_THRESHOLD 3.70f
+int pos = NUM_LEDS - 1;
+static const int RXPin = 2, TXPin = 3;
 static const uint32_t GPSBaud = 9600;
-const int chipSelect = A0;
+const int chipSelect = 24;
 
+
+//Adafruit_NeoPixel strip = Adafruit_NeoPixel(144, 12, NEO_GRB + NEO_KHZ800);
 
 // The TinyGPS++ object
 TinyGPSPlus gps;
 
 // The serial connection to the GPS device
 SoftwareSerial ss(RXPin, TXPin);
-CRGB leds[NUM_LEDS];
 
-uint8_t gHue = 0;
 
 void error(int error_code)
 {
-  //TODO: flash lights in number of times based on the error code or something 
+  //TODO: flash lights in number of times based on the error code or something
   DEBUG_PRINT("Error ")
   DEBUG_PRINTLN(error_code)
-  while(1);
+  while (1);
 }
 
 typedef enum ErrorCodes
 {
-  LOWBATTERY,
-  NOSDCARD,
-  NOGPS
+  ERR_LOWBATTERY,
+  ERR_NOSDCARD,
+  ERR_NOGPS
 };
+
+int freeRam () {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
+
 void setup() {
 
   //Set up buttons
   pinMode(BTN_PIN, INPUT_PULLUP);
   pinMode(BTN2_PIN, INPUT_PULLUP);
+  pinMode(BATTERY_PIN, INPUT);
+
+  //strip.begin();
+  //strip.show(); // Initialize all pixels to 'off'
+
+  // colorWipe(strip.Color(255, 0, 0), 50); // Red
 
   //Set up UART and softare UART for GPS
   Serial.begin(115200);
   ss.begin(GPSBaud);
 
-
   //TODO: try opening the file to make sure we can write?
   //Check if there is an SD Card
-  if(!init_sd_card())
+  if (!init_sd_card())
   {
-    error(NOSDCARD);
+    error(ERR_NOSDCARD);
   }
 
-//TODO: battery level
+  //Check Voltage is above reasonable threshold
+  if (!checkBatteryVoltage())
+  {
+    error(ERR_LOWBATTERY);
+  }
 
-  //TODO: change to a less ram intensive led lib
-  //Set up LEDS
-  FastLED.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  //If gps is connected properly we should get a valid sentence from it
+  while (gps.sentencesWithFix() >= 1)
+  {
+    smartDelay(1000);
+  }
+  DEBUG_PRINTLN("GPS\t\t[X]");
 
-  //TODO: adjust brightness either due to battery voltage or user settings
-  // set master brightness control
-  FastLED.setBrightness(BRIGHTNESS);
-
-  
   while (!gps.location.isValid())
   {
+    printFloat(gps.location.lat(), true, 11, 6);
+    printFloat(gps.location.lng(), true, 12, 6);
     smartDelay(1000);
     DEBUG_PRINTLN(".")
   }
 
   DEBUG_PRINTLN("GOT FIX")
 
+  Serial.println( freeRam ());
+  File dataFile = SD.open("datalug.txt", FILE_WRITE);
+  Serial.println( freeRam ());
+  if (dataFile) {
+    dataFile.println("TEST STRING PLS IGNORE 1");
+    dataFile.println("TEST STRING PLS IGNORE 2");
+    dataFile.println("TEST STRING PLS IGNORE 3");
+    dataFile.println("TEST STRING PLS IGNORE 4");
+    dataFile.close();
+    Serial.println("DONE");
+
+  }
+  Serial.println("?");
+
+}
+
+inline uint8_t checkBatteryVoltage()
+{
+  DEBUG_PRINT("Battery\t\t")
+  float batteryVoltage = getBatteryVoltage();
+  DEBUG_PRINTLN(batteryVoltage)
+
+  if (batteryVoltage >= MIN_VOLTAGE_THRESHOLD)
+  {
+    return 1;
+  }
+  return 0;
+}
+
+inline float getBatteryVoltage()
+{
+  const int numberVoltageSamples = 10;
+
+  int16_t averagedADC = 0;
+
+  for (int i = 0; i < numberVoltageSamples; i++)
+  {
+    averagedADC += analogRead(BATTERY_PIN);
+  }
+
+  float averagedBatteryADC = (float)averagedADC / (float)numberVoltageSamples;
+
+  float batteryVoltage = 0.02f + (averagedBatteryADC * 0.004286133f);
+
+  return batteryVoltage;
 }
 
 uint8_t init_sd_card()
 {
-   DEBUG_PRINT("SDCard [")
+  DEBUG_PRINT("SDCard\t\t[")
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
     DEBUG_PRINTLN(" ]")
@@ -117,10 +184,6 @@ uint8_t init_sd_card()
 
 
 
-int pos = NUM_LEDS - 1;
-
-height_record hr;
-
 void loop() {
   //powerDown();
   doMeasuringStick();
@@ -128,39 +191,7 @@ void loop() {
 
 }
 
-/*
-   Power down into as low a power as possible as we dont have an off switch
-*/
-void powerDown()
-{
-  //Sleep Flash, sleep
-  //Wake from interrupt WDT off
-}
-void doDataExport()
-{
-  unsigned long start = millis();
 
-#define BUFF_SIZE 10
-  char buff[BUFF_SIZE];
-  int bp = 0;
-
-  Serial.print("> ");
-  while (millis() < ( start + 2000UL )) {
-    if (bp >= BUFF_SIZE - 1 )
-    {
-      break;
-    }
-    if (Serial.available())
-    {
-      buff[bp++] = Serial.read();
-    }
-  }
-  buff[bp] = 0;
-  int a = atoi(buff);
-  Serial.println(a);
-  readRecords(0, a);
-
-}
 void doMeasuringStick()
 {
   // pos = NUM_LEDS - 1;
@@ -170,13 +201,11 @@ void doMeasuringStick()
   {
     smartDelay(100);
     if (gps.location.isValid()) {
-      leds[0] = CRGB(0, 255, 0);
-      FastLED.show();
+      //SHOW GREEN
     }
     else
     {
-      leds[0] = CRGB(255, 0, 0);
-      FastLED.show();
+      //SHOW RED
     }
   }
 
@@ -187,13 +216,13 @@ void doMeasuringStick()
     printFloat(gps.location.lat(), gps.location.isValid(), 11, 6);
     printFloat(gps.location.lng(), gps.location.isValid(), 12, 6);
 
-    hr.lat = gps.location.lat();
-    hr.lng = gps.location.lng();
+    //hr.lat = gps.location.lat();
+    //   hr.lng = gps.location.lng();
   }
   else
   {
-    hr.lat = -9999.99f;
-    hr.lng = -9999.99f;
+    // hr.lat = -9999.99f;
+    // hr.lng = -9999.99f;
   }
 
   while (digitalRead(BTN_PIN) == 0) {
@@ -204,7 +233,7 @@ void doMeasuringStick()
   //TODO: led speed should ramp down towards each end and bounce rather than wrap around
   while ( (digitalRead(BTN_PIN) == 1 ) || (digitalRead(BTN2_PIN) == 1) ) {
     //Serial.println("Waiting for btn");
-    drawPos(pos);
+    // drawPos(pos);
 
     if (digitalRead(BTN_PIN) == 0)
     {
@@ -227,32 +256,9 @@ void doMeasuringStick()
 
   }
 
-  hr.height = calculateHeight(pos);
-  storeRecord(hr);
-  Serial.print(hr.height);
-  Serial.println();
-
   smartDelay(1000);
-
-
-  for ( int i = 0; i < NUM_LEDS; i++) {
-    leds[i] = 0;
-  }
-  FastLED.show();
 }
-static void drawPos(int pos)
-{
-  for ( int i = 0; i < NUM_LEDS; i++) {
-    if (i == pos) {
-      leds[i] = CRGB(255, 255, 255);
-    }
-    else
-    {
-      leds[i] = 0;
-    }
-  }
-  FastLED.show();
-}
+
 static float calculateHeight(int led_pos)
 {
   return BASE_LED_OFFSET_MM + ((NUM_LEDS - pos) * LED_SEP_VAL_MM);
