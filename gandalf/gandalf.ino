@@ -1,18 +1,5 @@
-/**
-   5/7 buttons white/yellow
-  6 LEDS green
-
-  GPS
-  yellow 3
-  green 4
-
-
-
-*/
-
 #include <TinyGPS++.h>
 #include <SoftwareSerial.h>
-//#include "FastLED.h"
 #include <Adafruit_NeoPixel.h>
 
 #include <SD.h>
@@ -33,20 +20,29 @@
 //distance from base of pole to first led
 #define BASE_LED_OFFSET_MM 20
 #define NUM_LEDS 144
-#define BTN_PIN 12
-#define BTN2_PIN 13
+#define BTN_LEFT 12
+#define BTN_RIGHT 13
 #define LED_PIN 14
 #define BATTERY_PIN A3
 
 
 #define MIN_VOLTAGE_THRESHOLD 3.70f
+
+
 int pos = NUM_LEDS - 1;
 static const int RXPin = 2, TXPin = 3;
 static const uint32_t GPSBaud = 9600;
 const int chipSelect = 24;
 
 
-//Adafruit_NeoPixel strip = Adafruit_NeoPixel(144, 12, NEO_GRB + NEO_KHZ800);
+uint16_t pause = 500;
+#define MIN_LED_PAUSE 25
+#define MAX_LED_PAUSE 500
+
+
+//TODO: READ SETTINGS FILE? color/brightness
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // The TinyGPS++ object
 TinyGPSPlus gps;
@@ -57,10 +53,24 @@ SoftwareSerial ss(RXPin, TXPin);
 
 void error(int error_code)
 {
-  //TODO: flash lights in number of times based on the error code or something
-  DEBUG_PRINT("Error ")
+  clearLeds();
+
+  DEBUG_PRINT("Error = ")
   DEBUG_PRINTLN(error_code)
-  while (1);
+  while (1)
+  {
+    for(int i = 0; i < (error_code + 1); i++)
+    {
+      strip.setPixelColor(0, strip.Color(100, 0, 0));
+      strip.show();
+      delay(200);
+      strip.setPixelColor(0, strip.Color(0, 0, 0));
+      strip.show();
+      delay(200);
+    }
+
+    delay(2000);
+  }
 }
 
 typedef enum ErrorCodes
@@ -70,29 +80,30 @@ typedef enum ErrorCodes
   ERR_NOGPS
 };
 
-int freeRam () {
-  extern int __heap_start, *__brkval;
-  int v;
-  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
-}
-
 void setup() {
 
   //Set up buttons
-  pinMode(BTN_PIN, INPUT_PULLUP);
-  pinMode(BTN2_PIN, INPUT_PULLUP);
+  pinMode(BTN_LEFT, INPUT_PULLUP);
+  pinMode(BTN_RIGHT, INPUT_PULLUP);
   pinMode(BATTERY_PIN, INPUT);
 
-  //strip.begin();
-  //strip.show(); // Initialize all pixels to 'off'
+  strip.begin();
+  strip.show(); // Initialize all pixels to 'off'
 
-  // colorWipe(strip.Color(255, 0, 0), 50); // Red
+  for (uint16_t i = 0; i < strip.numPixels(); i++) {
+    strip.setPixelColor(i, strip.Color(50, 0, 0));
+    strip.show();
+    delay(5);
+  }
 
+  delay(1000);
+  
+  clearLeds();
+  
   //Set up UART and softare UART for GPS
   Serial.begin(115200);
   ss.begin(GPSBaud);
 
-  //TODO: try opening the file to make sure we can write?
   //Check if there is an SD Card
   if (!init_sd_card())
   {
@@ -105,39 +116,99 @@ void setup() {
     error(ERR_LOWBATTERY);
   }
 
+
+  DEBUG_PRINT("GPS\t\t[");
+  unsigned long startTime = millis();
+
   //If gps is connected properly we should get a valid sentence from it
   while (gps.sentencesWithFix() >= 1)
   {
     smartDelay(1000);
-  }
-  DEBUG_PRINTLN("GPS\t\t[X]");
 
-  while (!gps.location.isValid())
-  {
+    if ( (millis() - startTime) > 10000) {
+      DEBUG_PRINTLN(" ]");
+      error(ERR_NOGPS);
+    }
+  }
+  DEBUG_PRINTLN("X]");
+
+
+  /*while (!gps.location.isValid())
+    {
     printFloat(gps.location.lat(), true, 11, 6);
     printFloat(gps.location.lng(), true, 12, 6);
     smartDelay(1000);
     DEBUG_PRINTLN(".")
-  }
+    }
 
-  DEBUG_PRINTLN("GOT FIX")
-
-  Serial.println( freeRam ());
-  File dataFile = SD.open("datalug.txt", FILE_WRITE);
-  Serial.println( freeRam ());
-  if (dataFile) {
-    dataFile.println("TEST STRING PLS IGNORE 1");
-    dataFile.println("TEST STRING PLS IGNORE 2");
-    dataFile.println("TEST STRING PLS IGNORE 3");
-    dataFile.println("TEST STRING PLS IGNORE 4");
-    dataFile.close();
-    Serial.println("DONE");
-
-  }
-  Serial.println("?");
+    DEBUG_PRINTLN("GOT FIX")*/
 
 }
 
+void clearLeds()
+{
+  for (uint16_t i = 0; i < strip.numPixels(); i++) {
+    strip.setPixelColor(i, strip.Color(0, 0, 0));
+
+  }
+  strip.show();
+}
+
+void drawGPSStatus()
+{
+  if (gps.location.isValid()) {
+    strip.setPixelColor(0, strip.Color(0, 150, 0));
+  }
+  else
+  {
+    strip.setPixelColor(0, strip.Color(0, 0, 150));
+  }
+  strip.show();
+}
+void drawPos(int pos)
+{
+  for (uint16_t i = 0; i < strip.numPixels(); i++) {
+    if (i == pos)
+    {
+      strip.setPixelColor(i, strip.Color(255, 255, 255));
+    }
+    else {
+      strip.setPixelColor(i, strip.Color(0, 0, 0));
+    }
+  }
+  strip.show();
+}
+uint8_t writeHeightToSD(float height)
+{
+
+  char latStr[16];
+  char lonStr[16];
+  char heightStr[10];
+
+  dtostrf(gps.location.lat(), 12, 6, latStr);
+  dtostrf(gps.location.lng(), 12, 6, lonStr);
+  dtostrf(height, 8, 2, heightStr);
+  char output[64];
+
+  TinyGPSDate dt = gps.date;
+  TinyGPSTime tm = gps.time;
+
+  sprintf(output, " % 02d: % 02d: % 02d: % 02d: % 02d: % 02d, % s, % s, % s",
+          dt.year(), dt.month(), dt.day(),
+          tm.hour(), tm.minute(), tm.second(),
+          latStr, lonStr, heightStr);
+
+
+  File dataFile = SD.open("GPS.txt", FILE_WRITE);
+
+  if (dataFile) {
+    dataFile.println(output);
+    dataFile.close();
+    return 1;
+  }
+  return 0;
+
+}
 inline uint8_t checkBatteryVoltage()
 {
   DEBUG_PRINT("Battery\t\t")
@@ -175,11 +246,20 @@ uint8_t init_sd_card()
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
     DEBUG_PRINTLN(" ]")
-    // don't do anything more:
+
     return 0;
   }
   DEBUG_PRINTLN("X]")
-  return 1;
+
+  File dataFile = SD.open("GPS.txt", FILE_WRITE);
+
+  if (dataFile) {
+    dataFile.println("*Powered on");
+    dataFile.close();
+    DEBUG_PRINTLN(" - Test Write Succesfull")
+    return 1;
+  }
+  return 0;
 }
 
 
@@ -194,68 +274,72 @@ void loop() {
 
 void doMeasuringStick()
 {
-  // pos = NUM_LEDS - 1;
-  int  ramp = 500;
 
-  while (digitalRead(BTN_PIN) == 1)
+  //Wait for Left button to be pressed
+  while (digitalRead(BTN_LEFT) == 1)
   {
-    smartDelay(100);
-    if (gps.location.isValid()) {
-      //SHOW GREEN
-    }
-    else
-    {
-      //SHOW RED
-    }
+    smartDelay(250);
+    //clearLeds();
+    drawGPSStatus();
   }
 
-  //printInt(gps.satellites.value(), gps.satellites.isValid(), 5);
-  //printFloat(gps.hdop.hdop(), gps.hdop.isValid(), 6, 1);
-  if (gps.location.isValid())
-  {
-    printFloat(gps.location.lat(), gps.location.isValid(), 11, 6);
-    printFloat(gps.location.lng(), gps.location.isValid(), 12, 6);
-
-    //hr.lat = gps.location.lat();
-    //   hr.lng = gps.location.lng();
-  }
-  else
-  {
-    // hr.lat = -9999.99f;
-    // hr.lng = -9999.99f;
-  }
-
-  while (digitalRead(BTN_PIN) == 0) {
+  //Wait for Left button to be released
+  while (digitalRead(BTN_LEFT) == 0) {
     smartDelay(10);
   }
 
+  pause = MAX_LED_PAUSE;
 
-  //TODO: led speed should ramp down towards each end and bounce rather than wrap around
-  while ( (digitalRead(BTN_PIN) == 1 ) || (digitalRead(BTN2_PIN) == 1) ) {
-    //Serial.println("Waiting for btn");
-    // drawPos(pos);
-
-    if (digitalRead(BTN_PIN) == 0)
+  while (1)
+  {
+    if (digitalRead(BTN_LEFT) == 0)
     {
+
+      smartDelay(pause);
+      if (digitalRead(BTN_RIGHT) == 0)
+      {
+        break;
+      }
+      if (pause > MIN_LED_PAUSE)
+      {
+        pause = pause / 2;
+      }
       Serial.println("Button up");
       pos++;
-      smartDelay(50);
     }
-    else if (digitalRead(BTN2_PIN) == 0)
+    else if (digitalRead(BTN_RIGHT) == 0)
     {
+      smartDelay(pause);
+      if (digitalRead(BTN_LEFT) == 0)
+      {
+        break;
+      }
+      if (pause > MIN_LED_PAUSE)
+      {
+        pause = pause / 2;
+      }
       Serial.println("Button down");
       pos--;
-      smartDelay(50);
     }
-    pos = pos % (NUM_LEDS - 1);
+    else {
+      pause = MAX_LED_PAUSE;
+    }
+
+    pos = pos % (NUM_LEDS);
 
     if (pos < 0 )
     {
       pos = NUM_LEDS - 1;
     }
+    //Serial.println(pos);
+    drawPos(pos);
 
   }
 
+  float height = calculateHeight(pos);
+  Serial.println(height);
+  writeHeightToSD(height);
+  clearLeds();
   smartDelay(1000);
 }
 
@@ -276,72 +360,3 @@ static void smartDelay(unsigned long ms)
   } while (millis() - start < ms);
 }
 
-static void printFloat(float val, bool valid, int len, int prec)
-{
-  if (!valid)
-  {
-    while (len-- > 1)
-      Serial.print('*');
-    Serial.print(',');
-  }
-  else
-  {
-    Serial.print(val, prec);
-    int vi = abs((int)val);
-    int flen = prec + (val < 0.0 ? 2 : 1); // . and -
-    flen += vi >= 1000 ? 4 : vi >= 100 ? 3 : vi >= 10 ? 2 : 1;
-    for (int i = flen; i < len; ++i)
-      Serial.print(',');
-  }
-  smartDelay(0);
-}
-
-static void printInt(unsigned long val, bool valid, int len)
-{
-  char sz[32] = "*****************";
-  if (valid)
-    sprintf(sz, "%ld", val);
-  sz[len] = 0;
-  for (int i = strlen(sz); i < len; ++i)
-    sz[i] = ' ';
-  if (len > 0)
-    sz[len - 1] = ' ';
-  Serial.print(sz);
-  smartDelay(0);
-}
-
-static void printDateTime(TinyGPSDate & d, TinyGPSTime & t)
-{
-  if (!d.isValid())
-  {
-    Serial.print(F("********** "));
-  }
-  else
-  {
-    char sz[32];
-    sprintf(sz, "%02d/%02d/%02d ", d.month(), d.day(), d.year());
-    Serial.print(sz);
-  }
-
-  if (!t.isValid())
-  {
-    Serial.print(F("******** "));
-  }
-  else
-  {
-    char sz[32];
-    sprintf(sz, "%02d:%02d:%02d ", t.hour(), t.minute(), t.second());
-    Serial.print(sz);
-  }
-
-  printInt(d.age(), d.isValid(), 5);
-  smartDelay(0);
-}
-
-static void printStr(const char *str, int len)
-{
-  int slen = strlen(str);
-  for (int i = 0; i < len; ++i)
-    Serial.print(i < slen ? str[i] : ' ');
-  smartDelay(0);
-}
