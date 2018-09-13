@@ -16,9 +16,9 @@
 #endif
 
 //distance between leds on strip
-#define LED_SEP_VAL_MM 6.6944f
+#define LED_SEP_VAL_MM 6.92f
 //distance from base of pole to first led
-#define BASE_LED_OFFSET_MM 20
+#define BASE_LED_OFFSET_MM 17
 #define NUM_LEDS 144
 #define BTN_LEFT 12
 #define BTN_RIGHT 13
@@ -59,7 +59,7 @@ void error(int error_code)
   DEBUG_PRINTLN(error_code)
   while (1)
   {
-    for(int i = 0; i < (error_code + 1); i++)
+    for (int i = 0; i < (error_code + 1); i++)
     {
       strip.setPixelColor(0, strip.Color(100, 0, 0));
       strip.show();
@@ -97,9 +97,9 @@ void setup() {
   }
 
   delay(1000);
-  
+
   clearLeds();
-  
+
   //Set up UART and softare UART for GPS
   Serial.begin(115200);
   ss.begin(GPSBaud);
@@ -170,7 +170,7 @@ void drawPos(int pos)
   for (uint16_t i = 0; i < strip.numPixels(); i++) {
     if (i == pos)
     {
-      strip.setPixelColor(i, strip.Color(255, 255, 255));
+      strip.setPixelColor(i, strip.Color(50, 50, 50));
     }
     else {
       strip.setPixelColor(i, strip.Color(0, 0, 0));
@@ -193,18 +193,26 @@ uint8_t writeHeightToSD(float height)
   TinyGPSDate dt = gps.date;
   TinyGPSTime tm = gps.time;
 
-  sprintf(output, " % 02d: % 02d: % 02d: % 02d: % 02d: % 02d, % s, % s, % s",
+  int v = 0;
+  if(gps.location.isValid())
+  {
+    v = 1;
+  }
+  sprintf(output, "%02d:%02d:%02d:%02d:%02d: %02d, %s, %s, %s, %d",
           dt.year(), dt.month(), dt.day(),
           tm.hour(), tm.minute(), tm.second(),
-          latStr, lonStr, heightStr);
+          latStr, lonStr, heightStr, v);
 
-
-  File dataFile = SD.open("GPS.txt", FILE_WRITE);
+  File dataFile = SD.open("HEIGHT.txt", FILE_WRITE);
 
   if (dataFile) {
     dataFile.println(output);
     dataFile.close();
     return 1;
+  }
+  else
+  {
+    error(ERR_NOSDCARD);
   }
   return 0;
 
@@ -256,7 +264,7 @@ uint8_t init_sd_card()
   if (dataFile) {
     dataFile.println("*Powered on");
     dataFile.close();
-    DEBUG_PRINTLN(" - Test Write Succesfull")
+    DEBUG_PRINTLN("Test Write Succesfull")
     return 1;
   }
   return 0;
@@ -265,9 +273,13 @@ uint8_t init_sd_card()
 
 
 void loop() {
-  //powerDown();
+
   doMeasuringStick();
-  //is button pressed
+
+  if (!checkBatteryVoltage())
+  {
+    error(ERR_LOWBATTERY);
+  }
 
 }
 
@@ -304,7 +316,7 @@ void doMeasuringStick()
       {
         pause = pause / 2;
       }
-      Serial.println("Button up");
+      //Serial.println("Button up");
       pos++;
     }
     else if (digitalRead(BTN_RIGHT) == 0)
@@ -318,7 +330,7 @@ void doMeasuringStick()
       {
         pause = pause / 2;
       }
-      Serial.println("Button down");
+      //Serial.println("Button down");
       pos--;
     }
     else {
@@ -331,8 +343,11 @@ void doMeasuringStick()
     {
       pos = NUM_LEDS - 1;
     }
-    //Serial.println(pos);
+    Serial.print(pos);
+    Serial.print(",");
+    Serial.println(calculateHeight(pos));
     drawPos(pos);
+    
 
   }
 
@@ -345,7 +360,7 @@ void doMeasuringStick()
 
 static float calculateHeight(int led_pos)
 {
-  return BASE_LED_OFFSET_MM + ((NUM_LEDS - pos) * LED_SEP_VAL_MM);
+  return BASE_LED_OFFSET_MM + (((NUM_LEDS -1 )- pos) * LED_SEP_VAL_MM);
 }
 
 // This custom version of delay() ensures that the gps object
