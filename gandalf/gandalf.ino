@@ -1,4 +1,4 @@
-.#include <TinyGPS++.h>
+#include <TinyGPS++.h>
 #include <SoftwareSerial.h>
 #include <Adafruit_NeoPixel.h>
 
@@ -259,7 +259,7 @@ uint8_t init_sd_card()
   }
   DEBUG_PRINTLN("X]")
 
-  File dataFile = SD.open("GPS.txt", FILE_WRITE);
+  File dataFile = SD.open("HEIGHT.txt", FILE_WRITE);
 
   if (dataFile) {
     dataFile.println("*Powered on");
